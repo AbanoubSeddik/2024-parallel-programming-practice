@@ -2,7 +2,11 @@
 #include <vector>
 #include <cstdint>
 #include <algorithm>
+#include <thread>
+#include <mutex>
+#include <cmath>
 
+std::mutex mtx;
 
 std::istream& operator>>(std::istream& in, __int128& value) {
     std::string s;
@@ -42,6 +46,16 @@ std::ostream& operator<<(std::ostream& out, __int128 value) {
     return out;
 }
 
+void factorize(__int128& n, __int128 start, __int128 end, std::vector<__int128>& factors) {
+    for (__int128 p = start; p <= end; ++p) {
+        while (n % p == 0) {
+            std::lock_guard<std::mutex> lock(mtx);
+            factors.push_back(p);
+            n /= p;
+        }
+    }
+}
+
 int main() {
     __int128 n;
     std::cin >> n;
@@ -50,14 +64,46 @@ int main() {
     }
 
     std::vector<__int128> factors;
-    for (__int128 p = 2; p <= n / p; ++p) {
-        while (n % p == 0) {
-            factors.push_back(p);
-            n /= p;
-        }
+    const int num_threads = 10;
+    std::vector<std::thread> threads;
+
+    __int128 limit = static_cast<__int128>(std::sqrt(static_cast<double>(n))) + 1;
+    __int128 range = (limit - 2 + num_threads - 1) / num_threads;
+
+    __int128 original_n = n;
+
+    for (int i = 0; i < num_threads; ++i) {
+        __int128 start = 2 + i * range;
+        __int128 end = (i == num_threads - 1) ? limit : std::min(start + range - 1, limit);
+        threads.emplace_back(factorize, std::ref(n), start, end, std::ref(factors));
     }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
     if (n > 1) {
+        std::lock_guard<std::mutex> lock(mtx);
         factors.push_back(n);
+    }
+
+     __int128 product = 1;
+    for (const auto& factor : factors) {
+        product *= factor;
+    }
+
+    if (product != original_n) {
+        factors.clear();
+        n = original_n;
+        for (__int128 p = 2; p * p <= n; ++p) {
+            while (n % p == 0) {
+                factors.push_back(p);
+                n /= p;
+            }
+        }
+        if (n > 1) {
+            factors.push_back(n);
+        }
     }
 
     for (const auto& factor : factors) {
